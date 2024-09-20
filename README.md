@@ -148,5 +148,5 @@
 ```
 #### Notebook Links for the above pipelines
 
-* [Materialized Views]()
-* [Streaming Tables]()
+* [Materialized Views](https://github.com/biswadeepupadhyay-db/ucx-bootcamp/blob/main/create-hive-tables/notebooks/beepz_dlt_sql_hms_live_test_v2.sql)
+* [Streaming Tables](https://github.com/biswadeepupadhyay-db/ucx-bootcamp/blob/main/create-hive-tables/notebooks/beepz_dlt_sql_live_stream_test_v3.sql)
