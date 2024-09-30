@@ -2,6 +2,7 @@ import os
 import json
 import datetime
 from typing import List, Dict, Tuple, Optional
+from utils import write_tfvars, exec_command, ensure_input, get_full_name_from_email
 
 
 from databricks.sdk import WorkspaceClient
@@ -29,6 +30,8 @@ from databricks.sdk.service.pipelines import (
 
 CONFIG_PATH = './config/resource_setup.json'
 DEPLOYSTATE_PATH = './.deploy_state.json'
+TFVARS_PATH = './deploy-ws/azure_ws_deploy/terraform.tfvars'
+
 # Deploy State Schema:
 # {
 #     "secret_scope_name" : None,
@@ -74,20 +77,78 @@ def write_deploy_state(data):
     except Exception as e:
         print(f"Failed to store deployment state with the error: {e}\nState could not be persisted for restart.")
 
-# Initialize the WorkspaceClient with service principal credentials
-CONFIG = read_json_file(CONFIG_PATH)
-WS_CONFIG = CONFIG['workspace']
 
 
-WS_CLIENT = WorkspaceClient(
-    host=WS_CONFIG['url'],
-    client_id=WS_CONFIG['sp_client_id'],
-    client_secret=WS_CONFIG['sp_client_secret']
-)
 
-dbutils = WS_CLIENT.dbutils
-workspace_id = WS_CLIENT.get_workspace_id()
-print("Your Workspace ID is: ", workspace_id)
+#-----------------------------------* workspace deployment *------------------------------#
+def deploy_workspace(cloud: str = "azure"):
+    """Runs terraform scripts to deploy"""
+    status, output = exec_command("terraform version")
+    if not status:
+        print("Please install terrafom cli before trying this. Exiting with error code 1.")
+        exit(1)
+
+    status, output = exec_command("az --version")
+    if not status:
+        print("Please install azure-cli before trying this. Exiting with error code 1.")
+        exit(1)
+
+    azure_tenant_id = input("Enter your Azure Tenant ID: [this will be used for login using azure-cli]: ")
+
+    print("Going ahead with azure login...")
+
+    # status, output = exec_command(f"az login --tenant {azure_tenant_id}")
+    # if not status:
+    #     raise DatabricksException(f"Azure login failed with the error: {output}")
+
+    try:
+        os.system(f"az login --tenant {azure_tenant_id}")
+    except Exception as e:
+        print(f"Azure login failed with the error: {e}")
+
+
+
+
+    terraform_vars = {'databricks_account_console_host': 'https://accounts.azuredatabricks.net/',
+                      'databricks_account_id': 'none'}
+
+    v_region = input("Azure Region for Workspace deployment: [default:centralus]: ") or "centralus"
+    v_keyword = input("Deployment keyword identifier[This string will be present in your workspace name] [default:ucxbootcamp]: ") or "ucxbootcamp"
+    terraform_vars['deployment_region'] = v_region
+    terraform_vars['deployment_keyword'] = v_keyword
+
+
+    if not write_tfvars(terraform_vars, TFVARS_PATH):
+        raise DatabricksException("Failed to write terraform variables")
+
+    print("Initializing Terraform workspace...")
+    status, output = exec_command("terraform -chdir=./deploy-ws/azure_ws_deploy init")
+    if not status:
+        raise DatabricksException(f"Failed to initialize Terraform workspace with the error: \n{output}")
+
+    print("Checking Terraform plan...")
+    status, output = exec_command("terraform -chdir=./deploy-ws/azure_ws_deploy plan")
+    print(output)
+    if not status:
+        raise DatabricksException(f"Failed to check Terraform plan with the error: \n{output}")
+
+    print("Deploying Databricks workspace on Azure...")
+    # status, output = exec_command("terraform -chdir=./deploy-ws/azure_ws_deploy apply")
+    # if not status:
+    #     raise DatabricksException(f"Workspace deployment failed with the error: \n{output}")
+    # else:
+    #     print(f"{output}\nYour workspace has been deployed on Azure.")
+
+    try:
+        os.system(f"terraform -chdir=./deploy-ws/azure_ws_deploy apply")
+        print("Your workspace has been deployed on Azure.")
+    except Exception as e:
+        print(f"Workspace deployment failed with the error: {e}")
+
+
+
+#-----------------------------------* resource deployment *------------------------------#
+
 
 def create_secret_scope() -> None:
     # creating secret scope for azure storage account
@@ -426,8 +487,7 @@ def assign_grants() -> None:
     check_grants = deploy_state.get('grants')
 
     if not check_grants:
-        #group_names = CONFIG['groups']
-        group_names = ["520738662870201", "111902696838668", "531157630628106"]
+        group_names = CONFIG['groups']
         from sql_commands import get_table_names
         resources = get_table_names()
         catalog_name = "hive_metastore"
@@ -500,27 +560,107 @@ def assign_grants() -> None:
         print("Catalog, Schema & Table grants are already applied to workspace-level groups.")
 
 
-
-print("=*=" * 50)
-print("Workspace resource Deployment starting...")
-print("=*=" * 50)
-create_secret_scope()
-print("=*=" * 50)
-put_secret()
-print("=*=" * 50)
-create_compute()
-print("=*=" * 50)
-create_warehouse()
-print("=*=" * 50)
-create_hive_tables()
-print("=*=" * 50)
-create_dlt_hive_tables()
-print("=*=" * 50)
-create_workspace_groups()
-print("=*=" * 50)
-assign_grants()
-print("=*=" * 50)
-
-
+def run_resource_deployment():
+    print("=*=" * 50)
+    print("Workspace resource Deployment starting...")
+    print("=*=" * 50)
+    create_secret_scope()
+    print("=*=" * 50)
+    put_secret()
+    print("=*=" * 50)
+    create_compute()
+    print("=*=" * 50)
+    create_warehouse()
+    print("=*=" * 50)
+    create_hive_tables()
+    print("=*=" * 50)
+    create_dlt_hive_tables()
+    print("=*=" * 50)
+    create_workspace_groups()
+    print("=*=" * 50)
+    assign_grants()
+    print("=*=" * 50)
 
 
+#-----------------------------------* user input & config setup *------------------------------#
+
+#@ensure_input
+def resource_inputs():
+    v_username = input("Enter your username:[your email id that you use to login to Databricks]: ")
+    v_full_name = get_full_name_from_email(v_username)
+    v_ws_url = input("Enter your workspace url: ")
+    v_sp_id = input("Enter your Service Principal id [Make sure it has admin rights]: ")
+    v_sp_secret = input("Enter your Service Principal secret: ")
+    print("We will be creating Hive external Tables on ADLS. And an FS AZURE KEY to access the ADLS.")
+    v_sa = input("Enter your Azure Storage account name: ")
+    v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`] ")
+    print("We will create a Secret Scope to store the fs_azure_key.")
+    v_secret_scope = input("Enter your Secret Scope name: ")
+    v_secret_key = input("Enter your Secret key: ")
+    v_secret_value = input("Enter your fs_azure_key secret value: ")
+
+    resource_config = {
+        "root_directory" : "./ucx-bootcamp",
+        "spark_version" : "15.4.x-scala2.12",
+        "username" : v_username,
+        "name" : v_full_name,
+        "workspace" : {
+            "url" : v_ws_url,
+            "sp_client_id" : v_sp_id,
+            "sp_client_secret" : v_sp_secret
+        },
+
+        "secrets" : {
+            "scope_name" : v_secret_scope,
+            "secret_key" : v_secret_key,
+            "secret_value" : v_secret_value
+        },
+        "compute" : {
+            "node_type_id" : "Standard_D4ds_v5",
+            "conf_storage_account_name" : v_sa
+        },
+        "tables" : {
+            "external_path_uri" : v_ext_uri
+        },
+        "groups" : ["ucx_bootcamp_ds", "ucx_bootcamp_de", "ucx_bootcamp_da"]
+    }
+
+    print(resource_config)
+    return resource_config
+
+
+print("Welcome to UCX Bootcamp...\nThis script is to help you setup your workspace before you can start off with UCX.")
+check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:no]:") or "no"
+if check_installs.lower() == "no":
+    print("Try installing pyhon SDK before running this script. You may try `pip3 install databricks-sdk`")
+    exit(1)
+
+flag_ws_deploy = input("Do you want to deploy an workspace on Azure?[yes/no] [Default:no]:") or "no"
+if flag_ws_deploy.lower() == "yes":
+    deploy_workspace('azure')
+else:
+    print("You have selected no. We assume you already have a workspace on Azure for this bootcamp.")
+
+print("We'll go ahead with legacy hive resource deployment on your Workspace...")
+
+
+
+# Initialize the WorkspaceClient with service principal credentials
+# if not os.path.exists(CONFIG_PATH):
+#     raise DatabricksException("Failed to read the config file ./config/resource_setup.json. File not found")
+# CONFIG = read_json_file(CONFIG_PATH)
+CONFIG = resource_inputs()
+WS_CONFIG = CONFIG['workspace']
+
+
+WS_CLIENT = WorkspaceClient(
+    host=WS_CONFIG['url'],
+    client_id=WS_CONFIG['sp_client_id'],
+    client_secret=WS_CONFIG['sp_client_secret']
+)
+
+dbutils = WS_CLIENT.dbutils
+workspace_id = WS_CLIENT.get_workspace_id()
+print("Your Workspace ID is: ", workspace_id)
+
+run_resource_deployment()
