@@ -115,5 +115,34 @@ def get_table_names() -> Dict[str,List[str]]:
         "product_reviews_managed" : ['delta_reviews_managed', 'delta_reviews_managed']
     }
 
-def table_grants_commands():
-    pass
+def table_grants_commands(group_names: List[str]) -> str:
+    table_and_schema_names = get_table_names()
+    sql_commands = ""
+    catalog_name = 'hive_metastore'
+    schemas = []
+    tables = []
+    for k, v in table_and_schema_names.items():
+        _schema = f"{catalog_name}.{k}"
+        schemas.append(_schema)
+        _tables = [f"{_schema}.{table}" for table in v]
+        tables.append(_tables)
+
+    grant_resources = zip(group_names, schemas, tables)
+
+    for group_name, schema, tables in grant_resources:
+        sql_commands += f"""
+        \nGRANT MODIFY, SELECT ON ANY FILE to {group_name};
+        
+        GRANT USAGE, READ_METADATA, SELECT ON CATALOG {catalog_name} to {group_name};
+        
+        GRANT CREATE, MODIFY, READ_METADATA, SELECT, USAGE ON SCHEMA {schema} to {group_name};
+        """
+
+        for table in tables:
+            sql_commands += f"\nGRANT MODIFY, SELECT, READ_METADATA ON TABLE {table} to {group_name};"
+
+    return sql_commands
+
+
+
+
