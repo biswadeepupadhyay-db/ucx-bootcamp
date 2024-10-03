@@ -2,8 +2,7 @@ import os
 import json
 import datetime
 from typing import List, Dict, Tuple, Optional
-from utils import write_tfvars, exec_command, ensure_input, get_full_name_from_email
-
+from utils import write_tfvars, exec_command, ensure_input, get_full_name_from_email, write_json_file
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service import iam, catalog
@@ -230,7 +229,8 @@ def create_compute() -> None:
                 autotermination_minutes=120,
                 enable_elastic_disk=True,
                 data_security_mode=DataSecurityMode("USER_ISOLATION"),
-                runtime_engine=RuntimeEngine("STANDARD")
+                runtime_engine=RuntimeEngine("STANDARD"),
+                timeout= datetime.timedelta(minutes=30),
             )
             print("Cluster created successfully. Cluster ID: ", cluster.cluster_id)
         except Exception as e:
@@ -294,7 +294,8 @@ def create_hive_tables() -> None:
             # creating execution context
             context = WS_CLIENT.command_execution.create_and_wait(
                 cluster_id=cluster_id,
-                language=Language.SQL
+                language=Language.SQL,
+                timeout=datetime.timedelta(minutes=30),
             )
 
             context_id = context.id
@@ -560,6 +561,59 @@ def assign_grants() -> None:
         print("Catalog, Schema & Table grants are already applied to workspace-level groups.")
 
 
+def assign_grants_sql() -> None:
+    """Assigns table grants to workspace-level groups using SQL"""
+    deploy_state = read_json_file(DEPLOYSTATE_PATH)
+    check_grants = deploy_state.get('grants')
+    if not check_grants:
+        try:
+            from sql_commands import table_grants_commands
+        except ImportError as e:
+            raise DatabricksException("There was an error during the import of grant commands") from e
+
+
+        cluster_id = deploy_state.get('cluster_id')
+        group_names = CONFIG['groups']
+        sql_commands = table_grants_commands(group_names)
+        #print(sql_commands)
+        if not cluster_id:
+            raise DatabricksException("There was an error while retrieving cluster information from deployment state. Granting permissions failed.")
+
+        try:
+            print("Granting permission...")
+            context = WS_CLIENT.command_execution.create_and_wait(
+                cluster_id=cluster_id,
+                language=Language.SQL
+            )
+
+            context_id = context.id
+            print("Execution context created: ", context_id)
+
+            #executing table DDLs
+            execution_result = WS_CLIENT.command_execution.execute_and_wait(
+                cluster_id=cluster_id,
+                context_id=context_id,
+                language=Language.SQL,
+                command=table_grants_commands(group_names)
+            )
+
+            status = execution_result.status
+            print("Permission grant status: ", status)
+            print(execution_result.results.result_type,"\nAdditional Summary: ", execution_result.results.summary)
+
+            print("Successfully granted catalog, schema, table permissions to workspace-level groups.")
+            deploy_state["grants"] = "created"
+        except Exception as e:
+            print("Error granting permission: ", e)
+            deploy_state["grants"] = "attempted"
+
+        write_deploy_state(deploy_state)
+
+    else:
+        print("Catalog, Schema & Table grants are already applied to workspace-level groups.")
+
+
+
 def run_resource_deployment():
     print("=*=" * 50)
     print("Workspace resource Deployment starting...")
@@ -578,7 +632,8 @@ def run_resource_deployment():
     print("=*=" * 50)
     create_workspace_groups()
     print("=*=" * 50)
-    assign_grants()
+    #assign_grants()
+    assign_grants_sql()
     print("=*=" * 50)
 
 
@@ -586,47 +641,52 @@ def run_resource_deployment():
 
 #@ensure_input
 def resource_inputs():
-    v_username = input("Enter your username:[your email id that you use to login to Databricks]: ")
-    v_full_name = get_full_name_from_email(v_username)
-    v_ws_url = input("Enter your workspace url: ")
-    v_sp_id = input("Enter your Service Principal id [Make sure it has admin rights]: ")
-    v_sp_secret = input("Enter your Service Principal secret: ")
-    print("We will be creating Hive external Tables on ADLS. And an FS AZURE KEY to access the ADLS.")
-    v_sa = input("Enter your Azure Storage account name: ")
-    v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`] ")
-    print("We will create a Secret Scope to store the fs_azure_key.")
-    v_secret_scope = input("Enter your Secret Scope name: ")
-    v_secret_key = input("Enter your Secret key: ")
-    v_secret_value = input("Enter your fs_azure_key secret value: ")
+    if not os.path.exists(CONFIG_PATH):
+        v_username = input("Enter your username:[your email id that you use to login to Databricks]: ")
+        v_full_name = get_full_name_from_email(v_username)
+        v_ws_url = input("Enter your workspace url: ")
+        v_sp_id = input("Enter your Service Principal id [Make sure it has admin rights]: ")
+        v_sp_secret = input("Enter your Service Principal secret: ")
+        print("We will be creating Hive external Tables on ADLS. And an FS AZURE KEY to access the ADLS.")
+        v_sa = input("Enter your Azure Storage account name: ")
+        v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`] ")
+        print("We will create a Secret Scope to store the fs_azure_key.")
+        v_secret_scope = input("Enter your Secret Scope name: ")
+        v_secret_key = input("Enter your Secret key: ")
+        v_secret_value = input("Enter your fs_azure_key secret value: ")
 
-    resource_config = {
-        "root_directory" : "./ucx-bootcamp",
-        "spark_version" : "15.4.x-scala2.12",
-        "username" : v_username,
-        "name" : v_full_name,
-        "workspace" : {
-            "url" : v_ws_url,
-            "sp_client_id" : v_sp_id,
-            "sp_client_secret" : v_sp_secret
-        },
+        resource_config = {
+            "root_directory" : "./ucx-bootcamp",
+            "spark_version" : "15.4.x-scala2.12",
+            "username" : v_username,
+            "name" : v_full_name,
+            "workspace" : {
+                "url" : v_ws_url,
+                "sp_client_id" : v_sp_id,
+                "sp_client_secret" : v_sp_secret
+            },
 
-        "secrets" : {
-            "scope_name" : v_secret_scope,
-            "secret_key" : v_secret_key,
-            "secret_value" : v_secret_value
-        },
-        "compute" : {
-            "node_type_id" : "Standard_D4ds_v5",
-            "conf_storage_account_name" : v_sa
-        },
-        "tables" : {
-            "external_path_uri" : v_ext_uri
-        },
-        "groups" : ["ucx_bootcamp_ds", "ucx_bootcamp_de", "ucx_bootcamp_da"]
-    }
+            "secrets" : {
+                "scope_name" : v_secret_scope,
+                "secret_key" : v_secret_key,
+                "secret_value" : v_secret_value
+            },
+            "compute" : {
+                "node_type_id" : "Standard_D4ds_v5",
+                "conf_storage_account_name" : v_sa
+            },
+            "tables" : {
+                "external_path_uri" : v_ext_uri
+            },
+            "groups" : ["ucx_bootcamp_ds", "ucx_bootcamp_de", "ucx_bootcamp_da"]
+        }
 
-    print(resource_config)
-    return resource_config
+
+        if not write_json_file(data=resource_config, path=CONFIG_PATH):
+            raise DatabricksException("Failed to store resource config.")
+    print("=*=" * 50)
+    print("Using the resource config:\n", read_json_file(CONFIG_PATH))
+    print("=*=" * 50)
 
 
 print("Welcome to UCX Bootcamp...\nThis script is to help you setup your workspace before you can start off with UCX.")
@@ -641,15 +701,16 @@ if flag_ws_deploy.lower() == "yes":
 else:
     print("You have selected no. We assume you already have a workspace on Azure for this bootcamp.")
 
+resource_inputs()
 print("We'll go ahead with legacy hive resource deployment on your Workspace...")
 
 
 
 # Initialize the WorkspaceClient with service principal credentials
-# if not os.path.exists(CONFIG_PATH):
-#     raise DatabricksException("Failed to read the config file ./config/resource_setup.json. File not found")
-# CONFIG = read_json_file(CONFIG_PATH)
-CONFIG = resource_inputs()
+if not os.path.exists(CONFIG_PATH):
+    raise DatabricksException(f"Failed to read the config file {CONFIG_PATH}. File not found.")
+CONFIG = read_json_file(CONFIG_PATH)
+
 WS_CONFIG = CONFIG['workspace']
 
 
