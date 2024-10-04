@@ -28,7 +28,7 @@ from databricks.sdk.service.pipelines import (
 )
 
 CONFIG_PATH = './config/resource_setup.json'
-DEPLOYSTATE_PATH = './.deploy_state.json'
+DEPLOYSTATE_PATH = '.deploy_state.json'
 TFVARS_PATH = './deploy-ws/azure_ws_deploy/terraform.tfvars'
 
 # Deploy State Schema:
@@ -444,10 +444,9 @@ def create_workspace_groups() -> None:
         users = WS_CLIENT.users.list(attributes="id,UserName")
         user_id = None
         for user in users:
+            user_id = user.id
             if user.user_name == username:
-                user_id = user.id
-            else:
-                user_id = user.id
+                break
 
         try:
             for group_name in group_names:
@@ -641,7 +640,14 @@ def run_resource_deployment():
 
 #@ensure_input
 def resource_inputs():
-    if not os.path.exists(CONFIG_PATH):
+    config_flag = "yes"
+    if os.path.exists(CONFIG_PATH):
+        config_flag = input("A config file already exists. Do you want to overwrite it with new config input? [yes/no] (default:no): ") or "no"
+    if config_flag == "yes":
+        try:
+            os.remove(DEPLOYSTATE_PATH)
+        except FileNotFoundError:
+            pass
         v_username = input("Enter your username:[your email id that you use to login to Databricks]: ")
         v_full_name = get_full_name_from_email(v_username)
         v_ws_url = input("Enter your workspace url: ")
@@ -649,10 +655,10 @@ def resource_inputs():
         v_sp_secret = input("Enter your Service Principal secret: ")
         print("We will be creating Hive external Tables on ADLS. And an FS AZURE KEY to access the ADLS.")
         v_sa = input("Enter your Azure Storage account name: ")
-        v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`] ")
+        v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`]: ")
         print("We will create a Secret Scope to store the fs_azure_key.")
         v_secret_scope = input("Enter your Secret Scope name: ")
-        v_secret_key = input("Enter your Secret key: ")
+        v_secret_key = input("Enter your Secret key name: ")
         v_secret_value = input("Enter your fs_azure_key secret value: ")
 
         resource_config = {
