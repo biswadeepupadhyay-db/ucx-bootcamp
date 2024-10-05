@@ -696,16 +696,16 @@ def resource_inputs():
 
 
 print("Welcome to UCX Bootcamp...\nThis script is to help you setup your workspace before you can start off with UCX.")
-check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:no]:") or "no"
+check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:yes]: ") or "yes"
 if check_installs.lower() == "no":
-    print("Try installing pyhon SDK before running this script. You may try `pip3 install databricks-sdk`")
+    print("Try installing python SDK for Databricks before running this script. You may try `pip3 install databricks-sdk`")
     exit(1)
 
-flag_ws_deploy = input("Do you want to deploy an workspace on Azure?[yes/no] [Default:no]:") or "no"
+flag_ws_deploy = input("Do you want to deploy a Workspace on Azure?[yes/no] [Default:no]: ") or "no"
 if flag_ws_deploy.lower() == "yes":
     deploy_workspace('azure')
 else:
-    print("You have selected no. We assume you already have a workspace on Azure for this bootcamp.")
+    print("You have selected no. We assume you already have a Workspace on Azure for this bootcamp.")
 
 resource_inputs()
 print("We'll go ahead with legacy hive resource deployment on your Workspace...")
