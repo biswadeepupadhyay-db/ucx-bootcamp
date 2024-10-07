@@ -28,7 +28,7 @@ from databricks.sdk.service.pipelines import (
 )
 
 CONFIG_PATH = './config/resource_setup.json'
-DEPLOYSTATE_PATH = './.deploy_state.json'
+DEPLOYSTATE_PATH = '.deploy_state.json'
 TFVARS_PATH = './deploy-ws/azure_ws_deploy/terraform.tfvars'
 
 # Deploy State Schema:
@@ -121,6 +121,10 @@ def deploy_workspace(cloud: str = "azure"):
         raise DatabricksException("Failed to write terraform variables")
 
     print("Initializing Terraform workspace...")
+    try:
+        os.system("rm -f ./deploy-ws/azure_ws_deploy/terraform.tfstate")
+    except Exception as e:
+        pass
     status, output = exec_command("terraform -chdir=./deploy-ws/azure_ws_deploy init")
     if not status:
         raise DatabricksException(f"Failed to initialize Terraform workspace with the error: \n{output}")
@@ -444,10 +448,9 @@ def create_workspace_groups() -> None:
         users = WS_CLIENT.users.list(attributes="id,UserName")
         user_id = None
         for user in users:
+            user_id = user.id
             if user.user_name == username:
-                user_id = user.id
-            else:
-                user_id = user.id
+                break
 
         try:
             for group_name in group_names:
@@ -641,7 +644,14 @@ def run_resource_deployment():
 
 #@ensure_input
 def resource_inputs():
-    if not os.path.exists(CONFIG_PATH):
+    config_flag = "yes"
+    if os.path.exists(CONFIG_PATH):
+        config_flag = input("A config file already exists. Do you want to overwrite it with new config input? [yes/no] [Default:no]: ") or "no"
+    if config_flag.lower() == "yes":
+        try:
+            os.remove(DEPLOYSTATE_PATH)
+        except FileNotFoundError:
+            pass
         v_username = input("Enter your username:[your email id that you use to login to Databricks]: ")
         v_full_name = get_full_name_from_email(v_username)
         v_ws_url = input("Enter your workspace url: ")
@@ -649,10 +659,10 @@ def resource_inputs():
         v_sp_secret = input("Enter your Service Principal secret: ")
         print("We will be creating Hive external Tables on ADLS. And an FS AZURE KEY to access the ADLS.")
         v_sa = input("Enter your Azure Storage account name: ")
-        v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`] ")
+        v_ext_uri = input("Enter your complete abfss path uri for storing external hive table data [it starts with `abfss://`]: ")
         print("We will create a Secret Scope to store the fs_azure_key.")
         v_secret_scope = input("Enter your Secret Scope name: ")
-        v_secret_key = input("Enter your Secret key: ")
+        v_secret_key = input("Enter your Secret key name: ")
         v_secret_value = input("Enter your fs_azure_key secret value: ")
 
         resource_config = {
@@ -690,17 +700,21 @@ def resource_inputs():
 
 
 print("Welcome to UCX Bootcamp...\nThis script is to help you setup your workspace before you can start off with UCX.")
-check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:no]:") or "no"
+check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:yes]: ") or "yes"
 if check_installs.lower() == "no":
-    print("Try installing pyhon SDK before running this script. You may try `pip3 install databricks-sdk`")
+    print("Try installing python SDK for Databricks before running this script. You may try `pip3 install databricks-sdk`")
     exit(1)
 
-flag_ws_deploy = input("Do you want to deploy an workspace on Azure?[yes/no] [Default:no]:") or "no"
+flag_ws_deploy = input("Do you want to deploy a Workspace on Azure?[yes/no] [Default:no]: ") or "no"
 if flag_ws_deploy.lower() == "yes":
     deploy_workspace('azure')
 else:
-    print("You have selected no. We assume you already have a workspace on Azure for this bootcamp.")
+    print("You have selected no. We assume you already have a Workspace on Azure for this bootcamp.")
 
+resource_flag = input("Do you want to go ahead with legacy hive resources deployment on your workspace?[yes/no] [Default:yes]: ") or "yes"
+if resource_flag.lower() == "no":
+    print("Exiting...")
+    exit(0)
 resource_inputs()
 print("We'll go ahead with legacy hive resource deployment on your Workspace...")
 
