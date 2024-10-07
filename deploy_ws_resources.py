@@ -121,6 +121,10 @@ def deploy_workspace(cloud: str = "azure"):
         raise DatabricksException("Failed to write terraform variables")
 
     print("Initializing Terraform workspace...")
+    try:
+        os.system("rm -f ./deploy-ws/azure_ws_deploy/terraform.tfstate")
+    except Exception as e:
+        pass
     status, output = exec_command("terraform -chdir=./deploy-ws/azure_ws_deploy init")
     if not status:
         raise DatabricksException(f"Failed to initialize Terraform workspace with the error: \n{output}")
@@ -642,8 +646,8 @@ def run_resource_deployment():
 def resource_inputs():
     config_flag = "yes"
     if os.path.exists(CONFIG_PATH):
-        config_flag = input("A config file already exists. Do you want to overwrite it with new config input? [yes/no] (default:no): ") or "no"
-    if config_flag == "yes":
+        config_flag = input("A config file already exists. Do you want to overwrite it with new config input? [yes/no] [Default:no]: ") or "no"
+    if config_flag.lower() == "yes":
         try:
             os.remove(DEPLOYSTATE_PATH)
         except FileNotFoundError:
@@ -707,6 +711,10 @@ if flag_ws_deploy.lower() == "yes":
 else:
     print("You have selected no. We assume you already have a Workspace on Azure for this bootcamp.")
 
+resource_flag = input("Do you want to go ahead with legacy hive resources deployment on your workspace?[yes/no] [Default:yes]: ") or "yes"
+if resource_flag.lower() == "no":
+    print("Exiting...")
+    exit(0)
 resource_inputs()
 print("We'll go ahead with legacy hive resource deployment on your Workspace...")
 
