@@ -445,7 +445,8 @@ def create_workspace_groups() -> None:
     if not check_groups:
         group_names = CONFIG['groups']
         username = CONFIG['username']
-        users = WS_CLIENT.users.list(attributes="id,UserName")
+        #users = WS_CLIENT.users.list(attributes="id,UserName")
+        users = WS_CLIENT.users.list()
         user_id = None
         for user in users:
             user_id = user.id
