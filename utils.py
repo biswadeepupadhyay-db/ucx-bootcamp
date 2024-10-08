@@ -83,8 +83,10 @@ def write_json_file(data, path):
 def write_tfvars(variables, file_path):
     """Creates tfvars file for terraform deployment."""
     try:
-        if not os.path.exists(file_path):
+        if os.path.exists(file_path):
             os.remove(file_path)
+        if not os.path.exists(file_path):
+            os.system(f"touch {file_path}")
         with open(file_path, 'w') as f:
             for key, value in variables.items():
                 if isinstance(value, str):
