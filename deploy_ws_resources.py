@@ -4,7 +4,11 @@ import datetime
 from typing import List, Dict, Tuple, Optional
 from utils import write_tfvars, exec_command, ensure_input, get_full_name_from_email, write_json_file
 
-from databricks.sdk import WorkspaceClient
+try:
+    from databricks.sdk import WorkspaceClient
+except ImportError:
+    print("Try installing python SDK for Databricks before running this script. You may try `pip3 install databricks-sdk`")
+    exit(1)
 from databricks.sdk.service import iam, catalog
 from databricks.sdk.service.workspace import ImportFormat
 from databricks.sdk.service.sql import (
@@ -701,10 +705,10 @@ def resource_inputs():
 
 
 print("Welcome to UCX Bootcamp...\nThis script is to help you setup your workspace before you can start off with UCX.")
-check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:yes]: ") or "yes"
-if check_installs.lower() == "no":
-    print("Try installing python SDK for Databricks before running this script. You may try `pip3 install databricks-sdk`")
-    exit(1)
+# check_installs = input("Do you have python SDK for Databricks installed?[yes/no] [Default:yes]: ") or "yes"
+# if check_installs.lower() == "no":
+#     print("Try installing python SDK for Databricks before running this script. You may try `pip3 install databricks-sdk`")
+#     exit(1)
 
 flag_ws_deploy = input("Do you want to deploy a Workspace on Azure?[yes/no] [Default:no]: ") or "no"
 if flag_ws_deploy.lower() == "yes":
